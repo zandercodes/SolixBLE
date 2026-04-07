@@ -52,6 +52,8 @@ _LOGGER = logging.getLogger(__name__)
 class SolixBLEDevice:
     """Solix BLE device object."""
 
+    _TELEMETRY_CMDS: frozenset[str] = frozenset({"c402", "4300"})
+
     def __init__(self, ble_device: BLEDevice) -> None:
         """Initialise device object. Does not connect automatically."""
 
@@ -622,60 +624,60 @@ class SolixBLEDevice:
             # Encrypted messages
             case "03010f" | "030111":
 
-                match cmd.hex():
+                cmd_hex = cmd.hex()
 
+                if cmd_hex in self._TELEMETRY_CMDS:
                     # Telemetry messages
-                    case "c402" | "4300":
-                        _LOGGER.debug("Received telemetry message!")
-                        return await self._process_telemetry_packet(payload)
+                    _LOGGER.debug("Received telemetry message!")
+                    return await self._process_telemetry_packet(payload)
 
+                else:
                     # Unknown messages
-                    case _:
-                        _LOGGER.debug(f"Received unknown message of type: {cmd.hex()}")
-                        try:
+                    _LOGGER.debug(f"Received unknown message of type: {cmd_hex}")
+                    try:
 
-                            # If the payload is one byte too short and we are
-                            # using the default AES (CBC) then try putting the
-                            # last byte of the cmd in front of it
-                            if (
-                                len(payload) % 16 == 15
-                                and type(self)._decrypt_payload
-                                is SolixBLEDevice._decrypt_payload
-                            ):
-                                _LOGGER.debug(
-                                    "Using special trick of embedded part of CMD in payload..."
-                                )
-                                payload = cmd[1].to_bytes() + payload
-
-                            # If the payload is not aligned to a 16-byte
-                            # boundary and we are using the default AES (CBC)
-                            # then strip leading metadata bytes (similar to
-                            # the "special_value" byte in c402 telemetry
-                            # packets) to align the ciphertext
-                            elif (
-                                len(payload) % 16 != 0
-                                and type(self)._decrypt_payload
-                                is SolixBLEDevice._decrypt_payload
-                            ):
-                                remainder = len(payload) % 16
-                                _LOGGER.debug(
-                                    f"Stripping {remainder} leading metadata byte(s) "
-                                    f"to align payload: {payload[:remainder].hex()}"
-                                )
-                                payload = payload[remainder:]
-
-                            decrypted_payload = self._decrypt_payload(payload)
+                        # If the payload is one byte too short and we are
+                        # using the default AES (CBC) then try putting the
+                        # last byte of the cmd in front of it
+                        if (
+                            len(payload) % 16 == 15
+                            and type(self)._decrypt_payload
+                            is SolixBLEDevice._decrypt_payload
+                        ):
                             _LOGGER.debug(
-                                f"Decrypted payload: {decrypted_payload.hex()}"
+                                "Using special trick of embedded part of CMD in payload..."
                             )
-                            parameters = self._parse_payload(decrypted_payload)
+                            payload = cmd[1].to_bytes() + payload
+
+                        # If the payload is not aligned to a 16-byte
+                        # boundary and we are using the default AES (CBC)
+                        # then strip leading metadata bytes (similar to
+                        # the "special_value" byte in c402 telemetry
+                        # packets) to align the ciphertext
+                        elif (
+                            len(payload) % 16 != 0
+                            and type(self)._decrypt_payload
+                            is SolixBLEDevice._decrypt_payload
+                        ):
+                            remainder = len(payload) % 16
                             _LOGGER.debug(
-                                f"Parameters: {self._parameters_to_str(parameters, types=True)}"
+                                f"Stripping {remainder} leading metadata byte(s) "
+                                f"to align payload: {payload[:remainder].hex()}"
                             )
-                        except Exception:
-                            _LOGGER.exception(
-                                "Exception decrypting unknown message type"
-                            )
+                            payload = payload[remainder:]
+
+                        decrypted_payload = self._decrypt_payload(payload)
+                        _LOGGER.debug(
+                            f"Decrypted payload: {decrypted_payload.hex()}"
+                        )
+                        parameters = self._parse_payload(decrypted_payload)
+                        _LOGGER.debug(
+                            f"Parameters: {self._parameters_to_str(parameters, types=True)}"
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "Exception decrypting unknown message type"
+                        )
 
             case _:
                 _LOGGER.warning(

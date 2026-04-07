@@ -4,6 +4,7 @@
 
 """
 
+import logging
 from datetime import datetime, timedelta
 
 from ..const import (
@@ -13,6 +14,8 @@ from ..const import (
 )
 from ..device import SolixBLEDevice
 from ..states import ChargingStatusF3800, PortStatus
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class F3000(SolixBLEDevice):
@@ -26,20 +29,32 @@ class F3000(SolixBLEDevice):
     3600W inverter output, dual MPPT solar input (up to 2400W), and
     expandable capacity with BP3000 expansion batteries.
 
-    .. note::
-        This model was added using data from anker-solix-api. It has not been
-        tested!
-
-    .. note::
-        It should be possible to add more sensors. I think devices with lots of
-        telemetry values split them up into multiple messages but I have not
-        played around with this yet. That and I am being a bit conservative with
-        these initial implementations, if you want more sensors and are willing
-        to help with testing feel free to raise a GitHub issue.
-
     """
 
     _EXPECTED_TELEMETRY_LENGTH: int = 253
+    _TELEMETRY_CMDS: frozenset[str] = frozenset({"c402", "4300", "c421"})
+
+    async def _process_telemetry_packet(self, payload: bytes) -> None:
+        """
+        Process a telemetry packet from an F3000 device.
+
+        The F3000 sends telemetry as a single encrypted packet using
+        command ``c421`` with leading metadata bytes that must be
+        stripped before decryption.
+        """
+        # Single-packet telemetry (c421): strip metadata alignment bytes
+        remainder = len(payload) % 16
+        if remainder != 0:
+            _LOGGER.debug(
+                f"Stripping {remainder} leading metadata byte(s) "
+                f"to align telemetry payload: {payload[:remainder].hex()}"
+            )
+            payload = payload[remainder:]
+
+        decrypted_payload = self._decrypt_payload(payload)
+        _LOGGER.debug(f"Decrypted payload: {decrypted_payload.hex()}")
+        parameters = self._parse_payload(decrypted_payload)
+        return await self._process_telemetry(parameters)
 
     @property
     def hours_remaining(self) -> float:
