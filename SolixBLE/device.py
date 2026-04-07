@@ -639,13 +639,30 @@ class SolixBLEDevice:
                             # last byte of the cmd in front of it
                             if (
                                 len(payload) % 16 == 15
-                                and self._decrypt_payload
+                                and type(self)._decrypt_payload
                                 is SolixBLEDevice._decrypt_payload
                             ):
                                 _LOGGER.debug(
                                     "Using special trick of embedded part of CMD in payload..."
                                 )
                                 payload = cmd[1].to_bytes() + payload
+
+                            # If the payload is not aligned to a 16-byte
+                            # boundary and we are using the default AES (CBC)
+                            # then strip leading metadata bytes (similar to
+                            # the "special_value" byte in c402 telemetry
+                            # packets) to align the ciphertext
+                            elif (
+                                len(payload) % 16 != 0
+                                and type(self)._decrypt_payload
+                                is SolixBLEDevice._decrypt_payload
+                            ):
+                                remainder = len(payload) % 16
+                                _LOGGER.debug(
+                                    f"Stripping {remainder} leading metadata byte(s) "
+                                    f"to align payload: {payload[:remainder].hex()}"
+                                )
+                                payload = payload[remainder:]
 
                             decrypted_payload = self._decrypt_payload(payload)
                             _LOGGER.debug(

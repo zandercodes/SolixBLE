@@ -1113,3 +1113,71 @@ async def test_bad_values(
         assert (
             getattr(device, class_property) == expected_value
         ), f"Mismatch for property '{class_property}'!"
+
+
+@pytest.mark.asyncio
+async def test_unknown_message_payload_alignment(
+    caplog,
+    fast_sleep,
+    fast_timeouts,
+):
+    """
+    Test that an unknown encrypted message with a payload that is not
+    aligned to a 16-byte boundary (AES block size) is handled gracefully
+    by stripping leading metadata bytes before decryption.
+
+    This replicates the issue seen on F3000 devices that send c421 messages
+    with payloads like 243 bytes (243 % 16 = 3).
+    """
+
+    caplog.set_level(logging.DEBUG)
+
+    device = C1000(MOCK_BLE_DEVICE)
+
+    async with MockDevice() as mock_bluetooth:
+
+        # Negotiate first
+        for expected, response in NEGOTIATION_RESPONSES_SOLIX.items():
+            mock_bluetooth.expect_ordered(
+                bytes.fromhex(expected),
+                [bytes.fromhex(x) for x in response],
+            )
+
+        assert await device.connect(), "Expected connect to return True"
+        await asyncio.sleep(0.5)
+        assert device.negotiated, "Expected negotiated to be True"
+        mock_bluetooth.check_assertions()
+
+        # Set shared secret (from c1000_unknown test case)
+        device._shared_secret = bytes.fromhex(
+            "cf9b34f93bc679b84c9754a9484a56991cef242c586b23dbef195ba0f2ee02cb"
+        )
+
+        # Send a packet with pattern 03010f, cmd c421 (unknown), and a
+        # payload that has 3 leading metadata bytes + 32 bytes of valid
+        # AES-CBC encrypted data (total 35 bytes, 35 % 16 = 3)
+        await mock_bluetooth.send_data(
+            [
+                bytes.fromhex(
+                    "ff092d0003010fc421aabbcc"
+                    "2eb0fc833d00ca9e33491eab73ccfda2"
+                    "02cfdedb86599ba5d0e3c2c059652818"
+                    "5d"
+                )
+            ]
+        )
+
+    # Verify alignment stripping occurred
+    assert any(
+        "Stripping 3 leading metadata byte(s)" in msg for msg in caplog.messages
+    ), "Expected alignment stripping log message"
+
+    # Verify no decryption exception occurred
+    assert not any(
+        "Exception decrypting unknown message type" in msg for msg in caplog.messages
+    ), "Did not expect decryption exception"
+
+    # Verify the payload was successfully decrypted
+    assert any(
+        "Decrypted payload:" in msg for msg in caplog.messages
+    ), "Expected decrypted payload log message"
