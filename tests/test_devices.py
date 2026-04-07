@@ -1148,7 +1148,7 @@ async def test_unknown_message_payload_alignment(
         assert device.negotiated, "Expected negotiated to be True"
         mock_bluetooth.check_assertions()
 
-        # Set shared secret (from c1000_unknown test case)
+        # Test-only shared secret (reused from c1000_unknown test case)
         device._shared_secret = bytes.fromhex(
             "cf9b34f93bc679b84c9754a9484a56991cef242c586b23dbef195ba0f2ee02cb"
         )
@@ -1156,6 +1156,12 @@ async def test_unknown_message_payload_alignment(
         # Send a packet with pattern 03010f, cmd c421 (unknown), and a
         # payload that has 3 leading metadata bytes + 32 bytes of valid
         # AES-CBC encrypted data (total 35 bytes, 35 % 16 = 3)
+        #   ff092d00       = header + length (45 bytes LE)
+        #   03010f         = pattern (encrypted message)
+        #   c421           = cmd (unknown type, like F3000 sends)
+        #   aabbcc         = 3 dummy metadata bytes (cause misalignment)
+        #   2eb0fc83...18  = 32 bytes of valid AES-CBC ciphertext
+        #   5d             = checksum
         await mock_bluetooth.send_data(
             [
                 bytes.fromhex(
