@@ -17,7 +17,6 @@ from SolixBLE import (
     C1000,
     C1000G2,
     ChargingStatus,
-    ChargingStatusF3800,
     F3000,
     LightStatus,
     PortOverload,
@@ -443,12 +442,13 @@ from tests.helpers import MockDevice
             },
             id="c300_charging_ac_and_light",
         ),
+        # F3000 uses c421 compound-tag telemetry format (see _A1782_0421
+        # in thomluther/anker-solix-api).  Each tag contains a type byte
+        # at data[0] followed by byte-indexed sub-fields.
         pytest.param(
             F3000,
-            "a10131a2050300000000a3050300000000a403020f00a50302f401a60302c800a703022d00a803021e00a903020c00aa03020500ab020100ac03020000ad02014bae03022003af0302c201b003025e01b103025802b203022401b303020000b403020000b50302a600b603020000b703020000b803020000b903020000ba03020000bb020100bc020101bd020103be02011cbf020100c002014bc1020164c2020101c3020101c4020101c5020101c6020100c7020100c8020100c9020100ca020100cb020100cc110041313738324633303030544553543031cd020100ce020100cf03021e00",
+            "a10134a221062010413137383246333030305445535430310000054131373832000000000000a30b0400000000b00400000000a418040000000000000000000000000000001e00000000000000a506041c004b6400a60a042401f4010000000000a7070401c800000000a80404000000aa0404012d00ab0404011e00ac0404000000ad0404000000ae0404010c00af0404010500d91a0400000064010000000000000000000000000000000000000000fe0603638c2e69f0",
             {
-                "hours_remaining": 1.5,
-                "days_remaining": 0,
                 "ac_power_in": 500,
                 "ac_power_out": 200,
                 "usb_c1_power": 45,
@@ -457,18 +457,10 @@ from tests.helpers import MockDevice
                 "usb_a2_power": 5,
                 "dc_output": PortStatus.NOT_CONNECTED,
                 "battery_percentage": 75,
-                "solar_power_in": 800,
-                "solar_pv_1_power_in": 450,
-                "solar_pv_2_power_in": 350,
-                "battery_charge_power": 600,
-                "power_out": 292,
-                "battery_discharge_power": 0,
-                "software_version": "1.6.6",
-                "software_version_expansion": "0",
-                "ac_output": PortStatus.OUTPUT,
-                "charging_status": ChargingStatusF3800.BOTH,
-                "temperature": 28,
                 "battery_percentage_aggregate": 75,
+                "power_out": 292,
+                "ac_output": PortStatus.OUTPUT,
+                "temperature": 28,
                 "max_battery_percentage": 100,
                 "usb_port_c1": PortStatus.OUTPUT,
                 "usb_port_c2": PortStatus.OUTPUT,
@@ -968,13 +960,14 @@ def test_payload_decryption(
         ),
         # Test an F3000 device with a single c421 telemetry packet containing
         # 3 leading metadata bytes that must be stripped before decryption.
+        # The decrypted payload uses the c421 compound-tag format.
         pytest.param(
             F3000,
             [
-                "ff09fd0003010fc421aabbcca843c71e28526b0ea2ac4a9e43dbec1867f11839094077214916257a8619426d71cc7c08c9f4b35e803f197f34828ade4d26d59b8d5bcfe164482f8f37d5bd82dc4b3f5a8475439503009825daf283317050d2d76438694dce22180ecb8b1ce0db10f3821506489d8f48a9027a0e61e42c395bef5276328caddd040709d394ab2101e7e2cb6d870f7f31723db082c52fa374caf0f326a88b05f0fc78efe66eae9db4d7bcc2f595c6f7c47800d94cade01792159773a0de51efdaf3ff022e3474973527f96e63cb04fb86daefe0edb6f103b2ce4b8ea644f01adcdd623721db6273e1486102a9aa05797908b4382df8c794"
+                "ff09cd0003010fc421aabbccf1d213a9b593ab2fc436f6116a456c37cbdb014284c46bf93bb114dcf425cb87c7faed73e873a020935b746d70debecc21a3abac2408a1ebcb32c7bcf7ef075270b1055c248397c08e43075cb5a72850e6f8ea55f755260828a2f87f297e76ee259ae9c8afb5b143d5cf0d631ec9afea26129fb8094998079498af9c720206d47cb09765d0e6137216eba1467c14caa2f42478c345ec0932a235d2908a7bdb11fac38f71aa14db2ff8cb6f777372ee14e04865b6957de480e52b9de41c3192ee01"
             ],
             "cf9b34f93bc679b84c9754a9484a56991cef242c586b23dbef195ba0f2ee02cb",
-            """{'a1': '31', 'a2': '0300000000', 'a3': '0300000000', 'a4': '020f00', 'a5': '02f401', 'a6': '02c800', 'a7': '022d00', 'a8': '021e00', 'a9': '020c00', 'aa': '020500', 'ab': '0100', 'ac': '020000', 'ad': '014b', 'ae': '022003', 'af': '02c201', 'b0': '025e01', 'b1': '025802', 'b2': '022401', 'b3': '020000', 'b4': '020000', 'b5': '02a600', 'b6': '020000', 'b7': '020000', 'b8': '020000', 'b9': '020000', 'ba': '020000', 'bb': '0100', 'bc': '0101', 'bd': '0103', 'be': '011c', 'bf': '0100', 'c0': '014b', 'c1': '0164', 'c2': '0101', 'c3': '0101', 'c4': '0101', 'c5': '0101', 'c6': '0100', 'c7': '0100', 'c8': '0100', 'c9': '0100', 'ca': '0100', 'cb': '0100', 'cc': '0041313738324633303030544553543031', 'cd': '0100', 'ce': '0100', 'cf': '021e00'}""",
+            """{'a1': '34', 'a2': '062010413137383246333030305445535430310000054131373832000000000000', 'a3': '0400000000b00400000000', 'a4': '040000000000000000000000000000001e00000000000000', 'a5': '041c004b6400', 'a6': '042401f4010000000000', 'a7': '0401c800000000', 'a8': '04000000', 'aa': '04012d00', 'ab': '04011e00', 'ac': '04000000', 'ad': '04000000', 'ae': '04010c00', 'af': '04010500', 'd9': '0400000064010000000000000000000000000000000000000000', 'fe': '03638c2e69f0'}""",
             id="f3000_c421_telemetry_packet",
         ),
     ],

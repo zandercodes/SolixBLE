@@ -5,15 +5,10 @@
 """
 
 import logging
-from datetime import datetime, timedelta
 
-from ..const import (
-    DEFAULT_METADATA_FLOAT,
-    DEFAULT_METADATA_INT,
-    DEFAULT_METADATA_STRING,
-)
+from ..const import DEFAULT_METADATA_INT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
-from ..states import ChargingStatusF3800, PortStatus
+from ..states import PortStatus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +23,10 @@ class F3000(SolixBLEDevice):
     The F3000 is a 3072Wh portable power station with LiFePO4 batteries,
     3600W inverter output, dual MPPT solar input (up to 2400W), and
     expandable capacity with BP3000 expansion batteries.
+
+    The F3000 uses the c421 single-packet telemetry format with compound
+    TLV tags where each tag contains multiple byte-indexed sub-fields,
+    as described in the ``_A1782_0421`` mapping from thomluther/anker-solix-api.
 
     """
 
@@ -56,281 +55,206 @@ class F3000(SolixBLEDevice):
         parameters = self._parse_payload(decrypted_payload)
         return await self._process_telemetry(parameters)
 
-    @property
-    def hours_remaining(self) -> float:
-        """Time remaining to full/empty.
-
-        Note that any hours over 24 are overflowed to the
-        days remaining. Use time_remaining if you want
-        days to be included.
-
-        :returns: Hours remaining or default float value.
-        """
-        if self._data is None:
-            return DEFAULT_METADATA_FLOAT
-
-        return round(divmod(self.time_remaining, 24)[1], 1)
-
-    @property
-    def days_remaining(self) -> int:
-        """Time remaining to full/empty.
-
-        Note that any partial days are overflowed into
-        the hours remaining. Use time_remaining if you want
-        hours to be included.
-
-        :returns: Days remaining or default int value.
-        """
-        if self._data is None:
-            return DEFAULT_METADATA_INT
-
-        return round(divmod(self.time_remaining, 24)[0])
-
-    @property
-    def time_remaining(self) -> float:
-        """Time remaining to full/empty in hours.
-
-        :returns: Hours remaining or default float value.
-        """
-        return (
-            self._parse_int("a4", begin=1) / 10.0
-            if self._data is not None
-            else DEFAULT_METADATA_FLOAT
-        )
-
-    @property
-    def timestamp_remaining(self) -> datetime | None:
-        """Timestamp of when device will be full/empty.
-
-        :returns: Timestamp of when will be full/empty or None.
-        """
-        if self._data is None:
-            return None
-        return datetime.now() + timedelta(hours=self.time_remaining)
-
-    @property
-    def ac_power_in(self) -> int:
-        """AC Power In.
-
-        :returns: Total AC power in or default int value.
-        """
-        return self._parse_int("a5", begin=1)
-
-    @property
-    def ac_power_out(self) -> int:
-        """AC Power Out.
-
-        :returns: Total AC power out or default int value.
-        """
-        return self._parse_int("a6", begin=1)
-
-    @property
-    def usb_c1_power(self) -> int:
-        """USB C1 Power.
-
-        :returns: USB port C1 power or default int value.
-        """
-        return self._parse_int("a7", begin=1)
-
-    @property
-    def usb_c2_power(self) -> int:
-        """USB C2 Power.
-
-        :returns: USB port C2 power or default int value.
-        """
-        return self._parse_int("a8", begin=1)
-
-    @property
-    def usb_a1_power(self) -> int:
-        """USB A1 Power.
-
-        :returns: USB port A1 power or default int value.
-        """
-        return self._parse_int("a9", begin=1)
-
-    @property
-    def usb_a2_power(self) -> int:
-        """USB A2 Power.
-
-        :returns: USB port A2 power or default int value.
-        """
-        return self._parse_int("aa", begin=1)
-
-    @property
-    def dc_output(self) -> PortStatus:
-        """DC Port Status.
-
-        :returns: Status of the DC port.
-        """
-        return PortStatus(self._parse_int("ab", begin=1))
-
-    @property
-    def battery_percentage(self) -> int:
-        """Battery Percentage.
-
-        :returns: Percentage charge of battery or default int value.
-        """
-        return self._parse_int("ad", begin=1)
-
-    @property
-    def solar_power_in(self) -> int:
-        """Total Solar Power In.
-
-        :returns: Total solar power in or default int value.
-        """
-        return self._parse_int("ae", begin=1)
-
-    @property
-    def solar_pv_1_power_in(self) -> int:
-        """Solar Power In for MPPT channel 1.
-
-        :returns: Solar power in or default int value.
-        """
-        return self._parse_int("af", begin=1)
-
-    @property
-    def solar_pv_2_power_in(self) -> int:
-        """Solar Power In for MPPT channel 2.
-
-        :returns: Solar power in or default int value.
-        """
-        return self._parse_int("b0", begin=1)
-
-    @property
-    def battery_charge_power(self) -> int:
-        """Battery charging power (AC+DC).
-
-        :returns: Total battery power in or default int value.
-        """
-        return self._parse_int("b1", begin=1)
-
-    @property
-    def power_out(self) -> int:
-        """Total Power Out.
-
-        :returns: Total power out or default int value.
-        """
-        return self._parse_int("b2", begin=1)
-
-    @property
-    def battery_discharge_power(self) -> int:
-        """Battery discharging power (AC+DC).
-
-        :returns: Total battery power out or default int value.
-        """
-        return self._parse_int("b4", begin=1)
-
-    @property
-    def software_version(self) -> str:
-        """Main software version.
-
-        :returns: Firmware version or default str value.
-        """
-        if self._data is None:
-            return DEFAULT_METADATA_STRING
-
-        return ".".join([digit for digit in str(self._parse_int("b5", begin=1))])
-
-    @property
-    def software_version_expansion(self) -> str:
-        """Software version of any expansion batteries.
-
-        If there is no expansion battery then it will be "0".
-
-        :returns: Firmware version or default str value.
-        """
-        if self._data is None:
-            return DEFAULT_METADATA_STRING
-
-        return ".".join([digit for digit in str(self._parse_int("ba", begin=1))])
-
-    @property
-    def ac_output(self) -> PortStatus:
-        """AC Port Status.
-
-        PortStatus.NOT_CONNECTED signifies off.
-        PortStatus.OUTPUT signifies on.
-
-        :returns: Status of the AC port.
-        """
-        return PortStatus(self._parse_int("bc", begin=1))
-
-    @property
-    def charging_status(self) -> ChargingStatusF3800:
-        """Charging status of the device.
-
-        :returns: Status of charging.
-        """
-        return ChargingStatusF3800(self._parse_int("bd", begin=1))
-
-    @property
-    def temperature(self) -> int:
-        """Temperature of the unit (C).
-
-        :returns: Temperature of the unit in degrees C.
-        """
-        return self._parse_int("be", begin=1, signed=True)
-
-    @property
-    def battery_percentage_aggregate(self) -> int:
-        """Battery Percentage average across all batteries.
-
-        :returns: Percentage charge of battery or default int value.
-        """
-        return self._parse_int("c0", begin=1)
-
-    @property
-    def max_battery_percentage(self) -> int:
-        """Maximum charge percentage.
-
-        :returns: Battery charge percentage upper limit or default int value.
-        """
-        return self._parse_int("c1", begin=1)
-
-    @property
-    def usb_port_c1(self) -> PortStatus:
-        """USB C1 Port Status.
-
-        :returns: Status of the USB C1 port.
-        """
-        return PortStatus(self._parse_int("c2", begin=1))
-
-    @property
-    def usb_port_c2(self) -> PortStatus:
-        """USB C2 Port Status.
-
-        :returns: Status of the USB C2 port.
-        """
-        return PortStatus(self._parse_int("c3", begin=1))
-
-    @property
-    def usb_port_a1(self) -> PortStatus:
-        """USB A1 Port Status.
-
-        :returns: Status of the USB A1 port.
-        """
-        return PortStatus(self._parse_int("c4", begin=1))
-
-    @property
-    def usb_port_a2(self) -> PortStatus:
-        """USB A2 Port Status.
-
-        :returns: Status of the USB A2 port.
-        """
-        return PortStatus(self._parse_int("c5", begin=1))
+    # --- c421 compound tag properties ---
+    # Tag data layout: [type_byte][field_data_bytes...]
+    # MQTT field offset X maps to data[X + 1] (type byte at data[0]).
 
     @property
     def serial_number(self) -> str:
         """Device serial number.
 
+        Stored as a length-prefixed string at byte offset 1 inside
+        the compound ``a2`` tag (field data byte 2 = length prefix,
+        bytes 3..3+length = ASCII string).
+
         :returns: Device serial number or default str value.
         """
-        return self._parse_string("cc", begin=1)
+        if self._data is None or "a2" not in self._data:
+            return DEFAULT_METADATA_STRING
+        try:
+            sn_len = self._data["a2"][2]
+            return self._data["a2"][3 : 3 + sn_len].decode("ascii")
+        except (IndexError, UnicodeDecodeError):
+            return DEFAULT_METADATA_STRING
+
+    @property
+    def temperature(self) -> int:
+        """Temperature of the unit (C).
+
+        Tag ``a5``, MQTT offset 00 → data[1], 1-byte signed.
+
+        :returns: Temperature of the unit in degrees C.
+        """
+        return self._parse_int("a5", begin=1, end=2, signed=True)
+
+    @property
+    def battery_percentage(self) -> int:
+        """Battery Percentage.
+
+        Tag ``a5``, MQTT offset 02 → data[3], 1-byte unsigned.
+
+        :returns: Percentage charge of battery or default int value.
+        """
+        return self._parse_int("a5", begin=3, end=4)
+
+    @property
+    def battery_percentage_aggregate(self) -> int:
+        """Battery Percentage average across all batteries.
+
+        In c421 telemetry only the main battery SOC is available.
+
+        :returns: Percentage charge of battery or default int value.
+        """
+        return self.battery_percentage
+
+    @property
+    def power_out(self) -> int:
+        """Total Power Out (AC + DC).
+
+        Tag ``a6``, MQTT offset 00 → data[1:3], 2-byte signed LE.
+
+        :returns: Total power out or default int value.
+        """
+        return self._parse_int("a6", begin=1, end=3)
+
+    @property
+    def ac_power_in(self) -> int:
+        """AC Power In.
+
+        Tag ``a6``, MQTT offset 02 → data[3:5], 2-byte signed LE.
+
+        :returns: Total AC power in or default int value.
+        """
+        return self._parse_int("a6", begin=3, end=5)
+
+    @property
+    def ac_output(self) -> PortStatus:
+        """AC Port Status.
+
+        Tag ``a7``, MQTT offset 00 → data[1], 1-byte unsigned.
+        PortStatus.NOT_CONNECTED signifies off.
+        PortStatus.OUTPUT signifies on.
+
+        :returns: Status of the AC port.
+        """
+        return PortStatus(self._parse_int("a7", begin=1, end=2))
+
+    @property
+    def ac_power_out(self) -> int:
+        """AC Power Out.
+
+        Tag ``a7``, MQTT offset 01 → data[2:4], 2-byte signed LE.
+
+        :returns: Total AC power out or default int value.
+        """
+        return self._parse_int("a7", begin=2, end=4)
+
+    @property
+    def dc_output(self) -> PortStatus:
+        """DC Port Status.
+
+        Tag ``a8``, MQTT offset 00 → data[1], 1-byte unsigned.
+
+        :returns: Status of the DC port.
+        """
+        return PortStatus(self._parse_int("a8", begin=1, end=2))
+
+    @property
+    def usb_port_c1(self) -> PortStatus:
+        """USB C1 Port Status.
+
+        Tag ``aa``, MQTT offset 00 → data[1], 1-byte unsigned.
+
+        :returns: Status of the USB C1 port.
+        """
+        return PortStatus(self._parse_int("aa", begin=1, end=2))
+
+    @property
+    def usb_c1_power(self) -> int:
+        """USB C1 Power.
+
+        Tag ``aa``, MQTT offset 01 → data[2:4], 2-byte unsigned LE.
+
+        :returns: USB port C1 power or default int value.
+        """
+        return self._parse_int("aa", begin=2)
+
+    @property
+    def usb_port_c2(self) -> PortStatus:
+        """USB C2 Port Status.
+
+        Tag ``ab``, MQTT offset 00 → data[1], 1-byte unsigned.
+
+        :returns: Status of the USB C2 port.
+        """
+        return PortStatus(self._parse_int("ab", begin=1, end=2))
+
+    @property
+    def usb_c2_power(self) -> int:
+        """USB C2 Power.
+
+        Tag ``ab``, MQTT offset 01 → data[2:4], 2-byte unsigned LE.
+
+        :returns: USB port C2 power or default int value.
+        """
+        return self._parse_int("ab", begin=2)
+
+    @property
+    def usb_port_a1(self) -> PortStatus:
+        """USB A1 Port Status.
+
+        Tag ``ae``, MQTT offset 00 → data[1], 1-byte unsigned.
+
+        :returns: Status of the USB A1 port.
+        """
+        return PortStatus(self._parse_int("ae", begin=1, end=2))
+
+    @property
+    def usb_a1_power(self) -> int:
+        """USB A1 Power.
+
+        Tag ``ae``, MQTT offset 01 → data[2:4], 2-byte unsigned LE.
+
+        :returns: USB port A1 power or default int value.
+        """
+        return self._parse_int("ae", begin=2)
+
+    @property
+    def usb_port_a2(self) -> PortStatus:
+        """USB A2 Port Status.
+
+        Tag ``af``, MQTT offset 00 → data[1], 1-byte unsigned.
+
+        :returns: Status of the USB A2 port.
+        """
+        return PortStatus(self._parse_int("af", begin=1, end=2))
+
+    @property
+    def usb_a2_power(self) -> int:
+        """USB A2 Power.
+
+        Tag ``af``, MQTT offset 01 → data[2:4], 2-byte unsigned LE.
+
+        :returns: USB port A2 power or default int value.
+        """
+        return self._parse_int("af", begin=2)
+
+    @property
+    def max_battery_percentage(self) -> int:
+        """Maximum charge percentage.
+
+        Tag ``d9``, MQTT offset 03 → data[4], 1-byte unsigned.
+
+        :returns: Battery charge percentage upper limit or default int value.
+        """
+        return self._parse_int("d9", begin=4, end=5)
 
     @property
     def display_timeout(self) -> int:
         """Display timeout limit in seconds.
 
+        Tag ``a4``, MQTT offset 15 → data[16:18], 2-byte signed LE.
+
         :returns: Timeout limit of the display.
         """
-        return self._parse_int("cf", begin=1)
+        return self._parse_int("a4", begin=16, end=18)
